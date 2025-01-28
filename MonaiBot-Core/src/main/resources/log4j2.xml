@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT" follow="true">
+            <PatternLayout pattern="[%d{HH:mm:ss} %style{%highlight{%level}{FATAL=red, ERROR=red, WARN=yellow bright, INFO=cyan bright, DEBUG=green, TRACE=white}}][%t] %msg%n"/>
+        </Console>
+        <RollingRandomAccessFile name="File" fileName="logs/latest.log" filePattern="logs/%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout pattern="[%d{HH:mm:ss.SSS} %t/%level] %minecraftFormatting{%msg}{strip}%n"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy/>
+                <OnStartupTriggeringPolicy/>
+            </Policies>
+        </RollingRandomAccessFile>
+    </Appenders>
+    <Loggers>
+        <Root level="INFO" >
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="File"/>
+            <filters>
+                <MarkerFilter marker="packet_logging" onMatch="DENY" onMismatch="ACCEPT" />
+            </filters>
+        </Root>
+    </Loggers>
+</Configuration>
