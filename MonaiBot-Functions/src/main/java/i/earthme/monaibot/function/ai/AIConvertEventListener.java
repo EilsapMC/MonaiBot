@@ -74,7 +74,6 @@ public class AIConvertEventListener implements Listener {
 
                 if (plainTxtCnt > 0 || !matched) {
                     if (!(event instanceof GroupMessageEvent)) {
-                        logger.info("PRIVATE CHAT");
                         privateChat = true;
                         matched = true;
                     }
