@@ -35,6 +35,10 @@ public class Bootstrapper {
     private static Runnable POST_BOOTSTRAP = null;
     private static Runnable PRE_BOOTSTRAP = null;
 
+    public static File getBaseDir() {
+        return BASE_DIR;
+    }
+
     public static void setBaseDir(File dir) {
         BASE_DIR = dir;
         BOT_CONFIG_FILE = new File(BASE_DIR, "bot.json");
