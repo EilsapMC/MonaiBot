@@ -11,8 +11,8 @@ import java.util.*;
 
 public record ParsedCommandArgument(String calledCommand, String[] arguments,
                                     Map<Class<? extends Message>, List<Message>> argumentsMap) {
-    private static final String COMMAND_PREFIX = "#";
-    private static final String COMMAND_SEPARATOR = " ";
+    public static final String COMMAND_PREFIX = "#";
+    public static final String COMMAND_SEPARATOR = " ";
 
     public static @Nullable ParsedCommandArgument tryParseFromMessageChain(@NotNull MessageChain messages) {
         if (messages.isEmpty()) {

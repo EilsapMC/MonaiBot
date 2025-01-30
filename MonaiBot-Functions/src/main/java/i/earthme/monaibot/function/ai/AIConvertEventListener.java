@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import i.earthme.monaibot.Bootstrapper;
+import i.earthme.monaibot.command.ParsedCommandArgument;
 import i.earthme.monaibot.events.Listener;
 import net.mamoe.mirai.contact.Contact;
 import net.mamoe.mirai.contact.Group;
@@ -58,7 +59,17 @@ public class AIConvertEventListener implements Listener {
 
                 if (message instanceof PlainText plainText) {
                     plainTxtCnt++;
-                    content.append(plainText.contentToString());
+                    final String contentRaw = plainText.contentToString();
+
+                    // Skip commands
+                    if (contentRaw.startsWith(ParsedCommandArgument.COMMAND_PREFIX)) {
+                        if (plainTxtCnt == 1) {
+                            matched = false;
+                            break;
+                        }
+                    }
+
+                    content.append(contentRaw);
                 }
 
                 if (searchIdx > 1) {
