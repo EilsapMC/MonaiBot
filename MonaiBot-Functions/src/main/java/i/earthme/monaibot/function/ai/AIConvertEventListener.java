@@ -100,10 +100,16 @@ public class AIConvertEventListener implements Listener {
                 logger.info("[AIConvert] {}({}) → AI. Destination to {}({}) - {}.User mark is {}", sender.getId(), sender.getId(), feedback.getId(), feedback.getId(), content, databaseMark);
 
                 final boolean finalPrivateChat = privateChat;
-                this.doConversationInternal(databaseMark, content.toString()).whenComplete((result, ex) -> {
+                final String contentString = content.toString();
+
+                if (contentString.isBlank()) {
+                    return true;
+                }
+
+                this.doConversationInternal(databaseMark, contentString).whenComplete((result, ex) -> {
                     if (ex != null) {
-                        logger.error("[AIConvert] AI → {}. Error occurred.", feedback.getId(), ex);
-                        feedback.sendMessage(new PlainText("An error has been occurred. Please try again later. Stack trace: \n" + ex.getLocalizedMessage()));
+                        logger.warn("[AIConvert] AI → {}. Error occurred: {}", feedback.getId(), ex.toString());
+                        feedback.sendMessage(new PlainText("An error has been occurred. Please try again later. Stack trace: \n" + ex.toString()));
                         return;
                     }
 
@@ -166,19 +172,21 @@ public class AIConvertEventListener implements Listener {
                             "梦乃性格开朗，有着自己的个性，时刻都想和人们打成一片，每次眼神交汇时，总是会脸红耳赤。梦乃知识渊博，可爱温和，性格外向"
             )).getAsString();
 
-            if (memories.isEmpty() && !defaultPrompt.isBlank()) {
-                final MemoryEntry newSystemMemory = new MemoryEntry("system", defaultPrompt);
+            synchronized (this.aiMemoryDatabase) {
+                if (memories.isEmpty() && !defaultPrompt.isBlank()) {
+                    final MemoryEntry newSystemMemory = new MemoryEntry("system", defaultPrompt);
 
-                memories.add(newSystemMemory);
+                    memories.add(newSystemMemory);
 
-                this.aiMemoryDatabase.logToMemory(userMark, newSystemMemory.role(), newSystemMemory.content());
+                    this.aiMemoryDatabase.logToMemory(userMark, newSystemMemory.role(), newSystemMemory.content());
+                }
+
+                final MemoryEntry newMemory = new MemoryEntry("user", content);
+
+                memories.add(newMemory);
+
+                this.aiMemoryDatabase.logToMemory(userMark, newMemory.role(), newMemory.content());
             }
-
-            final MemoryEntry newMemory = new MemoryEntry("user", content);
-
-            memories.add(newMemory);
-
-            this.aiMemoryDatabase.logToMemory(userMark, newMemory.role(), newMemory.content());
 
             this.requestAPI(memories).whenComplete((response, ex) -> {
                 try {
@@ -190,17 +198,18 @@ public class AIConvertEventListener implements Listener {
                     logger.info("Got llmapi response: {}", response);
 
                     final MemoryEntry aiNewMemory = MemoryEntry.toMemoryEntry(response);
-
                     final MemoryEntry modified = new MemoryEntry(aiNewMemory.role(), removeThinkBlock(aiNewMemory.content()));
 
-                    this.aiMemoryDatabase.logToMemory(userMark, modified.role(), modified.content());
+                    synchronized (this.aiMemoryDatabase) {
+                        this.aiMemoryDatabase.logToMemory(userMark, modified.role(), modified.content());
+                    }
 
                     future.complete(modified);
                 }finally {
                     conversationLock.release();
                 }
 
-                this.processQueuedConversations(userMark);
+                this.processQueuedConversationsOnce(userMark);
             });
         }catch (Exception ex) {
             future.completeExceptionally(ex);
@@ -210,15 +219,16 @@ public class AIConvertEventListener implements Listener {
         return future;
     }
 
-    private void processQueuedConversations(String userMark) {
+    private void processQueuedConversationsOnce(String userMark) {
         final Queue<Runnable> target = this.conversationQueues.get(userMark);
 
         if (target == null) {
             return;
         }
 
-        Runnable call;
-        while ((call = target.poll()) != null) {
+        final Runnable call = target.poll();
+
+        if (call != null) {
             call.run();
         }
     }
@@ -256,8 +266,6 @@ public class AIConvertEventListener implements Listener {
 
         return MemoryEntry.requestAPIAsync(apiTimeoutSec, aiAPIUrl, aiAPIToken, memories, aiModel, temperature, maxTokens, topP, frequencyPenalty, presencePenalty);
     }
-
-
 
     @Override
     public String name() {
