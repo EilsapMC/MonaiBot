@@ -1,6 +1,5 @@
 package i.earthme.monaibot.function.ai;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import i.earthme.monaibot.Bootstrapper;
@@ -17,18 +16,16 @@ import net.mamoe.mirai.message.data.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Queue;
+import java.util.concurrent.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class AIConvertEventListener implements Listener {
     private static final Logger logger = LogManager.getLogger(AIConvertEventListener.class);
-
-    private final AIMemoryDatabase aiMemoryDatabase = new AIMemoryDatabase();
-    private final Map<String, Object> conversationLocks = new ConcurrentHashMap<>();
 
     public static void init(){
         Bootstrapper.LISTENER_LINE.registerListener(MessageEvent.class, new AIConvertEventListener());
@@ -102,34 +99,65 @@ public class AIConvertEventListener implements Listener {
 
                 logger.info("[AIConvert] {}({}) → AI. Destination to {}({}) - {}.User mark is {}", sender.getId(), sender.getId(), feedback.getId(), feedback.getId(), content, databaseMark);
 
-                final MemoryEntry result = this.doConversationInternal(databaseMark, content.toString());
+                final boolean finalPrivateChat = privateChat;
+                this.doConversationInternal(databaseMark, content.toString()).whenComplete((result, ex) -> {
+                    if (ex != null) {
+                        logger.error("[AIConvert] AI → {}. Error occurred.", feedback.getId(), ex);
+                        feedback.sendMessage(new PlainText("An error has been occurred. Please try again later. Stack trace: \n" + ex.getLocalizedMessage()));
+                        return;
+                    }
 
-                if (result != null) {
-                    logger.info("[AIConvert] AI → {}. Content is {}", feedback.getId(), result.content());
-                    final MessageChainBuilder msgBuilder = new MessageChainBuilder();
+                    if (result != null) {
+                        logger.info("[AIConvert] AI → {}. Content is {}", feedback.getId(), result.content());
+                        final MessageChainBuilder msgBuilder = new MessageChainBuilder();
 
-                    if (!privateChat) msgBuilder.add(new At(sender.getId()));
-                    msgBuilder.add(new PlainText(result.content()));
+                        if (!finalPrivateChat) msgBuilder.add(new At(sender.getId()));
+                        msgBuilder.add(new PlainText(result.content()));
 
-                    final MessageChain built = msgBuilder.build();
-                    feedback.sendMessage(built);
-                }
+                        final MessageChain built = msgBuilder.build();
+                        feedback.sendMessage(built);
+                    }
+                });
             }
         }
 
         return true;
     }
 
+    // AI Conversation logics
     public static @NotNull String userMark(MessageEvent msgEvent) {
         final Contact feedback = msgEvent instanceof GroupMessageEvent gMsgEvent ? gMsgEvent.getGroup() : msgEvent.getSender();
 
         return feedback instanceof Group ? "grp-" + feedback.getId() : "oth-" + feedback.getId();
     }
 
-    private @Nullable MemoryEntry doConversationInternal(String userMark, String content) {
-        final Object conversationLock = this.conversationLocks.computeIfAbsent(userMark, n -> new Object());
+    private final AIMemoryDatabase aiMemoryDatabase = new AIMemoryDatabase();
 
-        synchronized (conversationLock) {
+    private final Map<String, Queue<Runnable>> conversationQueues = new ConcurrentHashMap<>();
+    private final Map<String, Semaphore> conversationLocks = new ConcurrentHashMap<>();
+
+    private @NotNull CompletableFuture<MemoryEntry> doConversationInternal(String userMark, String content) {
+        final CompletableFuture<MemoryEntry> future = new CompletableFuture<>();
+
+        final Semaphore conversationLock = this.conversationLocks.computeIfAbsent(userMark, n -> new Semaphore(1, true));
+        final Queue<Runnable> conversationQueue = this.conversationQueues.computeIfAbsent(userMark, n -> new ConcurrentLinkedQueue<>());
+
+        if (!conversationLock.tryAcquire()) {
+            logger.info("A conversation was already running, pushing to queue...");
+
+            conversationQueue.offer(() -> this.doConversationInternal(userMark, content).whenComplete((f, ex) -> {
+                if (ex != null) {
+                    future.completeExceptionally(ex);
+                    return;
+                }
+
+                future.complete(f);
+            }));
+
+            return future;
+        }
+
+        try {
             final List<MemoryEntry> memories = this.aiMemoryDatabase.getProcessedContext(userMark);
 
             final String defaultPrompt = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_default_prompt", new JsonPrimitive(
@@ -152,21 +180,70 @@ public class AIConvertEventListener implements Listener {
 
             this.aiMemoryDatabase.logToMemory(userMark, newMemory.role(), newMemory.content());
 
-            try {
-                final MemoryEntry aiNewMemory = MemoryEntry.toMemoryEntry(this.requestAPI(memories));
+            this.requestAPI(memories).thenApply(response -> {
+                logger.info("Got llmapi response: {}", response);
 
-                this.aiMemoryDatabase.logToMemory(userMark, aiNewMemory.role(), aiNewMemory.content());
+                final MemoryEntry aiNewMemory = MemoryEntry.toMemoryEntry(response);
 
-                return aiNewMemory;
-            }catch (Exception e){
-                logger.error("Error while request llm api", e);
-            }
+                final MemoryEntry modified = new MemoryEntry(aiNewMemory.role(), removeThinkBlock(aiNewMemory.content()));
 
-            return null;
+                this.aiMemoryDatabase.logToMemory(userMark, modified.role(), modified.content());
+
+                return modified;
+            }).whenComplete((result, ex) -> {
+                conversationLock.release();
+
+                if (ex != null) {
+                    future.completeExceptionally(ex);
+                    return;
+                }
+
+                future.complete(result);
+
+                this.processQueuedConversations(userMark);
+            });
+        }catch (Exception ex) {
+            future.completeExceptionally(ex);
+            conversationLock.release();
+
+            this.processQueuedConversations(userMark);
+        }
+
+        return future;
+    }
+
+    private void processQueuedConversations(String userMark) {
+        final Queue<Runnable> target = this.conversationQueues.get(userMark);
+
+        if (target == null) {
+            return;
+        }
+
+        Runnable call;
+        while ((call = target.poll()) != null) {
+            call.run();
         }
     }
 
-    private @NotNull JsonObject requestAPI(List<MemoryEntry> memories) throws Exception {
+    public static @NotNull String removeThinkBlock(String input) {
+        String regex = "<think>(.*?)</think>";
+        Pattern pattern = Pattern.compile(regex, Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(input);
+
+        StringBuilder result = new StringBuilder();
+        int lastEnd = 0;
+
+        while (matcher.find()) {
+            result.append(input, lastEnd, matcher.start());
+            lastEnd = matcher.end();
+        }
+
+        result.append(input.substring(lastEnd));
+
+        return result.toString();
+    }
+
+    private @NotNull CompletableFuture<JsonObject> requestAPI(List<MemoryEntry> memories) throws Exception {
         final String aiModel = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_model", new JsonPrimitive("gpt-4o-mini")).getAsString();
         final String aiAPIUrl = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_llm_api_url", new JsonPrimitive("")).getAsString();
         final String aiAPIToken = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_llm_api_token", new JsonPrimitive("none")).getAsString();
@@ -177,7 +254,9 @@ public class AIConvertEventListener implements Listener {
         final int frequencyPenalty = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_frequency_penalty", new JsonPrimitive(0)).getAsInt();
         final int presencePenalty = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_presence_penalty", new JsonPrimitive(0)).getAsInt();
 
-        return MemoryEntry.requestAPI(aiAPIUrl, aiAPIToken, memories, aiModel, temperature, maxTokens, topP, frequencyPenalty, presencePenalty);
+        final long apiTimeoutNs = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_api_timeout", new JsonPrimitive(TimeUnit.SECONDS.toSeconds(60))).getAsLong();
+
+        return MemoryEntry.requestAPIAsync(apiTimeoutNs, aiAPIUrl, aiAPIToken, memories, aiModel, temperature, maxTokens, topP, frequencyPenalty, presencePenalty);
     }
 
 

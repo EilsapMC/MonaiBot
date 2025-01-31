@@ -1,19 +1,19 @@
 package i.earthme.monaibot.function.ai;
 
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-import kotlinx.serialization.json.Json;
 import okhttp3.*;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 public record MemoryEntry(
@@ -36,7 +36,8 @@ public record MemoryEntry(
         );
     }
 
-    public static @NotNull JsonObject requestAPI(
+    private static @NotNull Call requestAPIInternal(
+            long apiTimeoutNs,
             @NotNull String apiUrl,
             @Nullable String apiKey,
             @NotNull List<MemoryEntry> messages,
@@ -46,7 +47,7 @@ public record MemoryEntry(
             double topP,
             double frequencyPenalty,
             double presencePenalty
-    ) throws Exception {
+    ) throws MalformedURLException {
         JsonArray memoryRecords = new JsonArray();
 
         for (MemoryEntry botMemory : messages) {
@@ -72,9 +73,9 @@ public record MemoryEntry(
         URL url = new URL(apiUrl);
 
         OkHttpClient client = new OkHttpClient.Builder()
-                .callTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .writeTimeout(30, TimeUnit.SECONDS)
+                .callTimeout(apiTimeoutNs, TimeUnit.SECONDS)
+                .readTimeout(apiTimeoutNs, TimeUnit.SECONDS)
+                .writeTimeout(apiTimeoutNs, TimeUnit.SECONDS)
                 .build();
 
         MediaType mediaType = MediaType.parse("application/json");
@@ -91,10 +92,58 @@ public record MemoryEntry(
 
         Request request = requestBuilder.build();
 
-        Response response = client.newCall(request).execute();
-        String str = response.body().string();
-        JsonObject parsed = JsonParser.parseString(str).getAsJsonObject();
+        return client.newCall(request);
+    }
 
-        return parsed;
+    public static @NotNull CompletableFuture<JsonObject> requestAPIAsync(
+            long apiTimeoutNs,
+            @NotNull String apiUrl,
+            @Nullable String apiKey,
+            @NotNull List<MemoryEntry> messages,
+            String model,
+            double temperature,
+            int maxTokens,
+            double topP,
+            double frequencyPenalty,
+            double presencePenalty
+    ) throws MalformedURLException {
+        final CompletableFuture<JsonObject> callback = new CompletableFuture<>();
+
+        requestAPIInternal(apiTimeoutNs, apiUrl, apiKey, messages, model, temperature, maxTokens, topP, frequencyPenalty, presencePenalty)
+                .enqueue(new Callback() {
+                    @Override
+                    public void onFailure(@NotNull Call call, @NotNull IOException e) {
+                        callback.completeExceptionally(e);
+                    }
+
+                    @Override
+                    public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
+                        final String content = response.body().string();
+
+                        callback.complete(JsonParser.parseString(content).getAsJsonObject());
+                    }
+                });
+
+        return callback;
+    }
+
+    @Deprecated
+    public static @NotNull JsonObject requestAPIBlocking(
+            long apiTimeoutNs,
+            @NotNull String apiUrl,
+            @Nullable String apiKey,
+            @NotNull List<MemoryEntry> messages,
+            String model,
+            double temperature,
+            int maxTokens,
+            double topP,
+            double frequencyPenalty,
+            double presencePenalty
+    ) throws IOException {
+        final Response response = requestAPIInternal(apiTimeoutNs, apiUrl, apiKey, messages, model, temperature, maxTokens, topP, frequencyPenalty, presencePenalty).execute();
+
+        String str = response.body().string();
+
+        return JsonParser.parseString(str).getAsJsonObject();
     }
 }
