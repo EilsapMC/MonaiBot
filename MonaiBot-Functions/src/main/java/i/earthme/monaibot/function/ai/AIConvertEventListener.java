@@ -180,33 +180,31 @@ public class AIConvertEventListener implements Listener {
 
             this.aiMemoryDatabase.logToMemory(userMark, newMemory.role(), newMemory.content());
 
-            this.requestAPI(memories).thenApply(response -> {
-                logger.info("Got llmapi response: {}", response);
+            this.requestAPI(memories).whenComplete((response, ex) -> {
+                try {
+                    if (ex != null) {
+                        future.completeExceptionally(ex);
+                        return;
+                    }
 
-                final MemoryEntry aiNewMemory = MemoryEntry.toMemoryEntry(response);
+                    logger.info("Got llmapi response: {}", response);
 
-                final MemoryEntry modified = new MemoryEntry(aiNewMemory.role(), removeThinkBlock(aiNewMemory.content()));
+                    final MemoryEntry aiNewMemory = MemoryEntry.toMemoryEntry(response);
 
-                this.aiMemoryDatabase.logToMemory(userMark, modified.role(), modified.content());
+                    final MemoryEntry modified = new MemoryEntry(aiNewMemory.role(), removeThinkBlock(aiNewMemory.content()));
 
-                return modified;
-            }).whenComplete((result, ex) -> {
-                conversationLock.release();
+                    this.aiMemoryDatabase.logToMemory(userMark, modified.role(), modified.content());
 
-                if (ex != null) {
-                    future.completeExceptionally(ex);
-                    return;
+                    future.complete(modified);
+                }finally {
+                    conversationLock.release();
                 }
-
-                future.complete(result);
 
                 this.processQueuedConversations(userMark);
             });
         }catch (Exception ex) {
             future.completeExceptionally(ex);
             conversationLock.release();
-
-            this.processQueuedConversations(userMark);
         }
 
         return future;
@@ -254,9 +252,9 @@ public class AIConvertEventListener implements Listener {
         final int frequencyPenalty = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_frequency_penalty", new JsonPrimitive(0)).getAsInt();
         final int presencePenalty = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_presence_penalty", new JsonPrimitive(0)).getAsInt();
 
-        final long apiTimeoutNs = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_api_timeout", new JsonPrimitive(TimeUnit.SECONDS.toSeconds(60))).getAsLong();
+        final long apiTimeoutSec = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_api_timeout", new JsonPrimitive(60)).getAsLong();
 
-        return MemoryEntry.requestAPIAsync(apiTimeoutNs, aiAPIUrl, aiAPIToken, memories, aiModel, temperature, maxTokens, topP, frequencyPenalty, presencePenalty);
+        return MemoryEntry.requestAPIAsync(apiTimeoutSec, aiAPIUrl, aiAPIToken, memories, aiModel, temperature, maxTokens, topP, frequencyPenalty, presencePenalty);
     }
 
 

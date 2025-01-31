@@ -37,7 +37,7 @@ public record MemoryEntry(
     }
 
     private static @NotNull Call requestAPIInternal(
-            long apiTimeoutNs,
+            long apiTimeoutSec,
             @NotNull String apiUrl,
             @Nullable String apiKey,
             @NotNull List<MemoryEntry> messages,
@@ -73,9 +73,9 @@ public record MemoryEntry(
         URL url = new URL(apiUrl);
 
         OkHttpClient client = new OkHttpClient.Builder()
-                .callTimeout(apiTimeoutNs, TimeUnit.SECONDS)
-                .readTimeout(apiTimeoutNs, TimeUnit.SECONDS)
-                .writeTimeout(apiTimeoutNs, TimeUnit.SECONDS)
+                .callTimeout(apiTimeoutSec, TimeUnit.SECONDS)
+                .readTimeout(apiTimeoutSec, TimeUnit.SECONDS)
+                .writeTimeout(apiTimeoutSec, TimeUnit.SECONDS)
                 .build();
 
         MediaType mediaType = MediaType.parse("application/json");
@@ -96,7 +96,7 @@ public record MemoryEntry(
     }
 
     public static @NotNull CompletableFuture<JsonObject> requestAPIAsync(
-            long apiTimeoutNs,
+            long apiTimeoutSec,
             @NotNull String apiUrl,
             @Nullable String apiKey,
             @NotNull List<MemoryEntry> messages,
@@ -109,7 +109,7 @@ public record MemoryEntry(
     ) throws MalformedURLException {
         final CompletableFuture<JsonObject> callback = new CompletableFuture<>();
 
-        requestAPIInternal(apiTimeoutNs, apiUrl, apiKey, messages, model, temperature, maxTokens, topP, frequencyPenalty, presencePenalty)
+        requestAPIInternal(apiTimeoutSec, apiUrl, apiKey, messages, model, temperature, maxTokens, topP, frequencyPenalty, presencePenalty)
                 .enqueue(new Callback() {
                     @Override
                     public void onFailure(@NotNull Call call, @NotNull IOException e) {
@@ -129,7 +129,7 @@ public record MemoryEntry(
 
     @Deprecated
     public static @NotNull JsonObject requestAPIBlocking(
-            long apiTimeoutNs,
+            long apiTimeoutSec,
             @NotNull String apiUrl,
             @Nullable String apiKey,
             @NotNull List<MemoryEntry> messages,
@@ -140,7 +140,7 @@ public record MemoryEntry(
             double frequencyPenalty,
             double presencePenalty
     ) throws IOException {
-        final Response response = requestAPIInternal(apiTimeoutNs, apiUrl, apiKey, messages, model, temperature, maxTokens, topP, frequencyPenalty, presencePenalty).execute();
+        final Response response = requestAPIInternal(apiTimeoutSec, apiUrl, apiKey, messages, model, temperature, maxTokens, topP, frequencyPenalty, presencePenalty).execute();
 
         String str = response.body().string();
 
