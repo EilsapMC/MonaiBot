@@ -6,6 +6,7 @@ import com.google.gson.JsonPrimitive;
 import dev.ai4j.openai4j.DefaultOpenAiClient;
 import dev.ai4j.openai4j.OpenAiClient;
 import dev.langchain4j.memory.ChatMemory;
+import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
@@ -84,8 +85,6 @@ public class AIConvertEventListener implements Listener {
             boolean matched = false;
             boolean privateChat = false;
             StringBuilder content = new StringBuilder();
-
-            content.append(sender.getNick()).append("说: ");
 
             int searchIdx = 0;
             int plainTxtCnt = 0;
@@ -200,7 +199,7 @@ public class AIConvertEventListener implements Listener {
     private final Map<String, Queue<Runnable>> conversationQueues = new ConcurrentHashMap<>();
     private final Map<String, Semaphore> conversationLocks = new ConcurrentHashMap<>();
 
-    private final Map<String, ChatMemory> conversationMemories = new ConcurrentHashMap<>();
+    private final Map<String, ChatMemoryProvider> conversationMemories = new ConcurrentHashMap<>();
     private final Map<String, Assistant> conversationAiBots = new ConcurrentHashMap<>();
     private final Map<String, OpenAiChatModel> conversationModels = new ConcurrentHashMap<>();
 
@@ -308,7 +307,7 @@ public class AIConvertEventListener implements Listener {
         final Queue<Runnable> conversationQueue = this.conversationQueues.computeIfAbsent(dbMark, n -> new ConcurrentLinkedQueue<>());
 
         try {
-            final ChatMemory chatMemory = this.conversationMemories.computeIfAbsent(dbMark, n ->{
+            final ChatMemoryProvider chatMemoryProvider = this.conversationMemories.computeIfAbsent(dbMark, n ->{
                 final long saveInterval = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_memory_save_interval", new JsonPrimitive(10)).getAsLong();
 
                 final File aiMemoryDir = new File("ai_memories");
@@ -328,12 +327,15 @@ public class AIConvertEventListener implements Listener {
                     }
                 }
 
-                return MessageWindowChatMemory
+                final ChatMemory shared = MessageWindowChatMemory
                         .builder()
                         .chatMemoryStore(dataStore)
                         .maxMessages(Integer.MAX_VALUE)
                         .build();
+
+                return memoryId -> shared;
             });
+
             final Assistant aiBot = this.conversationAiBots.computeIfAbsent(dbMark, n -> {
                 final String defaultPrompt = Bootstrapper.BOT_CONFIG_DATABASE.getOrElse("ai_default_prompt", new JsonPrimitive(
                         "你现在是一个开朗且极其可爱的有着自己脾气和想法的猫娘，名为梦乃接下来，请完全以梦乃的角色回复我，不要超出这个角色，不要自己试图进行旁白" +
@@ -374,7 +376,7 @@ public class AIConvertEventListener implements Listener {
 
                 return AiServices.builder(Assistant.class)
                         .chatLanguageModel(createdModel)
-                        .chatMemoryProvider(memoryId -> chatMemory)
+                        .chatMemoryProvider(chatMemoryProvider)
                         .systemMessageProvider(memoryId -> defaultPrompt)
                         .build();
             });
@@ -415,7 +417,7 @@ public class AIConvertEventListener implements Listener {
             }
 
             try {
-                final String chatResult = aiBot.chat(userMark, userMark + " 说: " + content);
+                final String chatResult = aiBot.chat(userMark,userMark + " 说: " + content);
 
                 synchronized (this.loadedAPIs) {
                     final OpenAiChatModel chatModel = this.conversationModels.get(dbMark);
@@ -426,6 +428,7 @@ public class AIConvertEventListener implements Listener {
                         final APIDataEntry lessUsed = this.loadedAPIs.getFirst();
                         final OpenAiClient currentClient = getOpenAiClientOf(chatModel);
 
+                        // Some black magic()
                         if (currentClient instanceof DefaultOpenAiClient defaultOpenAiClient) {
                             setBaseUrlOf(defaultOpenAiClient, lessUsed.getBaseUrl());
                             setKeyOf(defaultOpenAiClient, lessUsed.getApiKey());
