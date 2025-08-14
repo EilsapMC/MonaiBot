@@ -6,10 +6,10 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 
 public class ListenerLine {
@@ -25,7 +25,9 @@ public class ListenerLine {
     public void onEvent(@NotNull Event event) {
         final Set<Listener> listeners = this.getListeners(event.getClass());
         if (listeners != null) {
-            final ConcurrentLinkedQueue<Listener> eventPipeLine = new ConcurrentLinkedQueue<>(listeners);
+            // use array dequeue would be faster, and there is only 1 thread modify it, so
+            // there is no need to concern its thread safety
+            final ArrayDeque<Listener> eventPipeLine = new ArrayDeque<>(listeners);
             this.worker.execute(() -> {
                 Listener listener;
                 while ((listener = eventPipeLine.poll()) != null) {
