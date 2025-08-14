@@ -8,6 +8,7 @@ import i.earthme.monaibot.events.ListenerLine;
 import i.earthme.monaibot.management.BotManagerLayer;
 import i.earthme.monaibot.management.CommandRegistryManager;
 import i.earthme.monaibot.management.FileBasedBotManager;
+import i.earthme.monaibot.util.MonaiBotWorkerFactory;
 import net.mamoe.mirai.event.Event;
 import net.mamoe.mirai.event.events.MessageEvent;
 import org.jetbrains.annotations.NotNull;
@@ -23,7 +24,7 @@ public class Bootstrapper {
     private static File BOT_CONFIG_FILE = new File(BASE_DIR, "bot.json");
     private static File BOT_CONFIG_DATABASE_FILE = new File(BASE_DIR, "bot_sub_configs.json");
 
-    public static final ExecutorService BOT_WORKER_THREAD_POOL = Executors.newCachedThreadPool();
+    public static final ExecutorService BOT_WORKER_THREAD_POOL = Executors.newCachedThreadPool(new MonaiBotWorkerFactory());
 
     public static final ListenerLine LISTENER_LINE = new ListenerLine(BOT_WORKER_THREAD_POOL);
     public static final CommandRegistryManager COMMAND_REGISTRY_MANAGER = new CommandRegistryManager();
