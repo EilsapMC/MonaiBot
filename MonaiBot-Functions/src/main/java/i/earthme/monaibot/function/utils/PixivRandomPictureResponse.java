@@ -15,12 +15,11 @@ import java.util.stream.Stream;
 
 public class PixivRandomPictureResponse {
     public static JSONObject getNewLink(int rType, int num) throws IOException {
-        final URL url = new URL("https://setu.yuban10703.xyz/setu?num=" + num + "&r18=" + rType);
+        final URL url = new URL("https://setu.yuban10703.xyz/setu?num=" + num + "&r18=" + rType + "&replace_url=https://i.pixiv.re");
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
 
         connection.setRequestMethod("GET");
         connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0");
-        connection.setRequestProperty("Referer", "https://www.pixiv.net/");
         connection.setConnectTimeout(3000);
         connection.setReadTimeout(3000);
         connection.connect();
@@ -41,7 +40,6 @@ public class PixivRandomPictureResponse {
 
         connection.setRequestMethod("GET");
         connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0");
-        connection.setRequestProperty("Referer", "https://www.pixiv.net/");
         connection.setConnectTimeout(30_000);
         connection.setReadTimeout(30_000);
         connection.connect();
@@ -63,7 +61,6 @@ public class PixivRandomPictureResponse {
 
         connection.setRequestMethod("GET");
         connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0");
-        connection.setRequestProperty("Referer", "https://www.pixiv.net/");
         connection.setConnectTimeout(3000);
         connection.setReadTimeout(3000);
         connection.connect();
