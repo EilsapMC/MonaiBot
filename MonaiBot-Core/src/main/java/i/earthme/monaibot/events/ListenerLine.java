@@ -44,7 +44,11 @@ public class ListenerLine {
     }
 
     public Set<Listener> getListeners(@NotNull Class<? extends Event> eventClazz) {
-        final Map.Entry<Class<? extends Event>, Set<Listener>> entry = this.listeners.entrySet().stream().filter(e -> e.getKey().isAssignableFrom(eventClazz)).findFirst().orElse(null);
+        final Map.Entry<Class<? extends Event>, Set<Listener>> entry = this.listeners.entrySet()
+                .stream()
+                .filter(e -> e.getKey().isAssignableFrom(eventClazz))
+                .findFirst()
+                .orElse(null);
 
         return entry == null ? null : entry.getValue();
     }
