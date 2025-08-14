@@ -10,7 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 public record ParsedCommandArgument(String calledCommand, String[] arguments,
-                                    Map<Class<? extends Message>, List<Message>> argumentsMap) {
+                                    Map<Class<? extends Message>, List<Message>> otherTypeArguments) {
     public static final String COMMAND_PREFIX = "#";
     public static final String COMMAND_SEPARATOR = " ";
 
@@ -25,18 +25,19 @@ public record ParsedCommandArgument(String calledCommand, String[] arguments,
 
         String commandHead = null;
         final List<String> arguments = new ArrayList<>();
-        final Map<Class<? extends Message>, List<Message>> argumentsMap = new HashMap<>();
+        final Map<Class<? extends Message>, List<Message>> otherTypeArguments = new HashMap<>();
 
-        int index = 0;
+        int relativePlainTextIndex = 0;
         for (Message msg : messages) {
-            if (msg instanceof PlainText plainText && index == 1) {
+            if (msg instanceof PlainText plainText && relativePlainTextIndex == 0) {
+                relativePlainTextIndex++;
                 commandHead = plainText.contentToString();
 
                 if (commandHead.isEmpty()) {
                     return null;
                 }
 
-                if (!commandHead.startsWith(COMMAND_PREFIX) || commandHead.length() <= COMMAND_PREFIX.length()) {
+                if (!commandHead.startsWith(COMMAND_PREFIX) || commandHead.length() == COMMAND_PREFIX.length()) {
                     return null;
                 }
 
@@ -57,6 +58,8 @@ public record ParsedCommandArgument(String calledCommand, String[] arguments,
             }
 
             if (msg instanceof PlainText plainText) {
+                relativePlainTextIndex++;
+
                 final String[] split = split(plainText.contentToString());
 
                 if (split == null) {
@@ -64,23 +67,22 @@ public record ParsedCommandArgument(String calledCommand, String[] arguments,
                 }
 
                 arguments.addAll(Arrays.asList(split));
+                continue;
             }
 
-            argumentsMap.computeIfAbsent(msg.getClass(), k -> new ArrayList<>()).add(msg);
-
-            index++;
+            otherTypeArguments.computeIfAbsent(msg.getClass(), k -> new ArrayList<>()).add(msg);
         }
 
         if (commandHead == null) {
             return null;
         }
 
-        return new ParsedCommandArgument(commandHead, arguments.toArray(new String[0]), argumentsMap);
+        return new ParsedCommandArgument(commandHead, arguments.toArray(new String[0]), otherTypeArguments);
     }
 
     @Nullable
     @Contract(pure = true)
-    private static String [] split(@NotNull String input) {
+    private static String @Nullable [] split(@NotNull String input) {
         final String[] split = input.split(COMMAND_SEPARATOR);
 
         if (split.length == 0) {
@@ -90,11 +92,12 @@ public record ParsedCommandArgument(String calledCommand, String[] arguments,
         return split;
     }
 
+    @NotNull
     public String toString() {
-        return "CommandArgumentParser{" +
+        return "i.earthme.monaibot.command.CommandArgumentParser{" +
                 "calledCommand='" + calledCommand + '\'' +
                 ", arguments=" + Arrays.toString(arguments) +
-                ", argumentsMap=" + argumentsMap +
+                ", otherTypeArguments=" + otherTypeArguments +
                 '}';
     }
 }
