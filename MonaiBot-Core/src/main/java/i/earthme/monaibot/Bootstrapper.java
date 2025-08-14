@@ -1,6 +1,7 @@
 package i.earthme.monaibot;
 
 import i.earthme.monaibot.command.impl.DebugCommand;
+import i.earthme.monaibot.command.impl.ListCommandsCommand;
 import i.earthme.monaibot.data.BotConfigDatabase;
 import i.earthme.monaibot.events.Listener;
 import i.earthme.monaibot.events.ListenerLine;
@@ -93,6 +94,7 @@ public class Bootstrapper {
 
     public static void doPostBootstrap() {
         DebugCommand.init();
+        ListCommandsCommand.init();
 
         if (POST_BOOTSTRAP != null) {
             POST_BOOTSTRAP.run();
