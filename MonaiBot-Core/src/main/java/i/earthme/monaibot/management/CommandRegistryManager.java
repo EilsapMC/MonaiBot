@@ -24,6 +24,12 @@ public class CommandRegistryManager {
         }
     }
 
+    public String[] getRegistedNames() {
+        synchronized (this.registedCommands){
+            return this.registedCommands.keySet().toArray(new String[0]);
+        }
+    }
+
     public void deregisterCommand(String commandName) {
         synchronized (this.registedCommands){
             this.registedCommands.remove(commandName);
